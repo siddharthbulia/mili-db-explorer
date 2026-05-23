@@ -20,6 +20,8 @@ PROJECT_NAME="${VERCEL_PROJECT_NAME:-mili-db-explorer}"
 VERCEL_SCOPE="${VERCEL_SCOPE:-sb0210s-projects}"   # sb0210 personal scope
 SITE_DIR="site"
 DL_DIR="$SITE_DIR/downloads"
+# DMGs > 100 MB don't fit on Vercel Hobby. We host them on GitHub Releases.
+GH_REPO="${GH_REPO:-siddharthbulia/mili-db-explorer}"
 
 mkdir -p "$DL_DIR"
 
@@ -31,9 +33,17 @@ shopt -s nullglob
 DMGS=(release/*.dmg)
 shopt -u nullglob
 
-if [[ ${#DMGS[@]} -eq 0 ]]; then
-  # No fresh DMGs in release/ — re-use whatever's already in site/downloads/ so
-  # we can ship doc/landing-page changes without rebuilding the app.
+# DMGs live on GitHub Releases (>100 MB exceeds Vercel Hobby's per-file limit).
+# We don't copy them into the Vercel bundle. We pick the source of truth in
+# this order:
+#   1. release/*.dmg     (fresh local build)
+#   2. site/downloads/   (left over from earlier builds — used for sizing only)
+#   3. fail
+SRC_DMGS=()
+if [[ ${#DMGS[@]} -gt 0 ]]; then
+  SRC_DMGS=("${DMGS[@]}")
+  echo "[deploy] using fresh DMGs in release/ for manifest metadata:"
+else
   shopt -s nullglob
   EXISTING=("$DL_DIR"/*.dmg)
   shopt -u nullglob
@@ -41,46 +51,43 @@ if [[ ${#DMGS[@]} -eq 0 ]]; then
     echo "ERROR: No DMGs in release/ or site/downloads/. Run 'npm run release:mac' first." >&2
     exit 1
   fi
-  echo "[deploy] no fresh DMGs in release/ — re-using ${#EXISTING[@]} existing artifact(s):"
-  ls -lh "${EXISTING[@]}" | sed 's/^/  /'
-else
-  # Wipe stale DMGs so the manifest matches what's actually shipped.
-  find "$DL_DIR" -maxdepth 1 -name '*.dmg' -delete
-  for dmg in "${DMGS[@]}"; do
-    cp "$dmg" "$DL_DIR/"
-  done
+  SRC_DMGS=("${EXISTING[@]}")
+  echo "[deploy] no fresh DMGs in release/ — using existing artifacts for sizing:"
 fi
+printf '  %s\n' "${SRC_DMGS[@]}"
 
-echo "[deploy] downloads:"
-ls -lh "$DL_DIR"/*.dmg | sed 's/^/  /'
+# Make sure Vercel won't try to ship the DMGs.
+find "$DL_DIR" -maxdepth 1 -name '*.dmg' -delete 2>/dev/null || true
 
-# Build manifest.json.
-node <<NODE > "$DL_DIR/manifest.json"
-const fs = require('fs');
-const path = require('path');
-const pkg = require('./package.json');
-const dir = '${DL_DIR}';
-const files = fs.readdirSync(dir).filter((f) => f.endsWith('.dmg'));
-const assets = files.map((f) => {
-  const stat = fs.statSync(path.join(dir, f));
-  // Filenames look like "Mili-DB-Explorer-1.0.0-arm64.dmg"
-  const m = f.match(/-(arm64|x64)\.dmg$/);
-  const arch = m ? m[1] : 'unknown';
+# Build manifest.json with GitHub Releases URLs. Bash array → stdin → Node.
+GH_REPO="$GH_REPO" printf '%s\n' "${SRC_DMGS[@]}" | node -e '
+const repo = process.env.GH_REPO || "siddharthbulia/mili-db-explorer";
+const pkg = require(process.cwd() + "/package.json");
+const fs = require("fs");
+const lines = require("fs").readFileSync(0, "utf8").split("\n").filter(Boolean);
+const assets = lines.map((p) => {
+  const stat = fs.statSync(p);
+  const filename = require("path").basename(p);
+  const m = filename.match(/-(arm64|x64)\.dmg$/);
   return {
-    filename: f,
-    url: '/downloads/' + f,
-    arch,
+    filename,
+    // GitHub redirects /releases/latest/download/<asset> to the most recent
+    // release containing that asset. We use the version-pinned URL so the
+    // landing page always lines up with the manifest version.
+    url: `https://github.com/${repo}/releases/download/v${pkg.version}/${filename}`,
+    arch: m ? m[1] : "unknown",
     sizeBytes: stat.size,
     sizeMB: (stat.size / (1024 * 1024)).toFixed(1),
   };
 });
 process.stdout.write(JSON.stringify({
   version: pkg.version,
-  productName: pkg.build && pkg.build.productName || pkg.name,
+  productName: (pkg.build && pkg.build.productName) || pkg.name,
   generatedAt: new Date().toISOString(),
+  source: `https://github.com/${repo}/releases/tag/v${pkg.version}`,
   assets,
 }, null, 2));
-NODE
+' > "$DL_DIR/manifest.json"
 
 echo "[deploy] manifest:"
 cat "$DL_DIR/manifest.json" | sed 's/^/  /'
