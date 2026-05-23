@@ -1,0 +1,17 @@
+node_modules
+dist
+dist-electron
+release
+.DS_Store
+*.log
+.env
+.env.local
+
+# Build artifacts
+site/downloads/*.dmg
+site/downloads/manifest.json
+site/.vercel/
+.build-bin
+
+# Editor / agent state
+.claude/

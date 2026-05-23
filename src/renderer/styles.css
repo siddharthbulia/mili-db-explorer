@@ -1,0 +1,451 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+  ─────────────────────────────────────────────────────────────────────────
+  Mili DB Explorer — Studio Quiet design system
+  See /DESIGN.md for the full token reference and rationale.
+  Studio Quiet is dark-only by design.
+  ─────────────────────────────────────────────────────────────────────────
+*/
+
+@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://api.fontshare.com/v2/css?f[]=general-sans@400,500,600,700&display=swap');
+
+:root {
+  /* Studio Quiet tokens */
+  --surface-deep:    #0B0D11;
+  --surface-base:    #12141A;
+  --surface-raised:  #1A1D24;
+  --surface-hover:   #1F2229;
+  --hairline:        #262932;
+  --hairline-strong: #363A47;
+
+  --ink:    #F5F6F8;
+  --ink-2:  #C2C5CE;
+  --ink-3:  #7C808C;
+  --ink-4:  #4F525C;
+
+  --accent:        #F5A524;
+  --accent-strong: #FFB544;
+  --accent-dim:    #9F6A18;
+  --accent-tint:   rgba(245,165,36,0.10);
+  --accent-glow:   rgba(245,165,36,0.40);
+
+  --success: #5BE3A8;
+  --warning: #F5A524;
+  --danger:  #F26F6F;
+  --info:    #7CB2FF;
+
+  --font-display: 'Instrument Serif', 'New York', Georgia, serif;
+  --font-ui:      'General Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-mono:    'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+
+  --ease-out: cubic-bezier(.16, 1, .3, 1);
+  --ease-in:  cubic-bezier(.4, 0, 1, 1);
+  --dur-1: 80ms;
+  --dur-2: 140ms;
+  --dur-3: 220ms;
+
+  /* Legacy aliases — existing components reference --bg-primary etc.
+     Mapping them to Studio Quiet values means no component rewrite needed. */
+  --bg-primary:    var(--surface-deep);
+  --bg-secondary:  var(--surface-base);
+  --bg-tertiary:   var(--surface-raised);
+  --bg-hover:      var(--surface-hover);
+  --bg-active:     var(--surface-hover);
+  --fg-primary:    var(--ink);
+  --fg-secondary:  var(--ink-2);
+  --fg-muted:      var(--ink-3);
+  --border:        var(--hairline);
+  --border-strong: var(--hairline-strong);
+  --accent-hover:  var(--accent-strong);
+  --accent-fg:     var(--surface-deep);
+  --warn:          var(--warning);
+}
+
+.dark { /* same tokens — Studio Quiet is dark by default */ }
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background: var(--surface-deep);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-feature-settings: 'tnum', 'ss01';
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overflow: hidden;
+}
+
+* { box-sizing: border-box; }
+
+::selection {
+  background: var(--accent-tint);
+  color: var(--accent-strong);
+}
+
+button {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+}
+
+input, select, textarea {
+  font-family: var(--font-ui);
+  font-size: inherit;
+  color: var(--ink);
+  background: var(--surface-raised);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+  outline: none;
+  transition: border-color var(--dur-1) var(--ease-out), box-shadow var(--dur-1) var(--ease-out);
+}
+
+input:focus, select:focus, textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-tint);
+}
+
+::placeholder { color: var(--ink-4); }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--hairline-strong);
+  border-radius: 6px;
+  border: 2px solid var(--surface-deep);
+}
+::-webkit-scrollbar-thumb:hover { background: var(--ink-4); }
+::-webkit-scrollbar-corner { background: transparent; }
+
+/* ─────── Buttons ─────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--hairline);
+  background: var(--surface-raised);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-weight: 500;
+  transition: background var(--dur-1) var(--ease-out), border-color var(--dur-1) var(--ease-out), transform var(--dur-1) var(--ease-out);
+  white-space: nowrap;
+}
+.btn:hover { background: var(--surface-hover); border-color: var(--hairline-strong); }
+.btn:active { transform: translateY(1px); }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.btn-primary {
+  background: var(--accent);
+  color: var(--surface-deep);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+.btn-primary:hover {
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
+}
+
+.btn-danger {
+  background: var(--danger);
+  color: var(--surface-deep);
+  border-color: var(--danger);
+  font-weight: 500;
+}
+.btn-danger:hover { filter: brightness(1.1); }
+
+.btn-ghost {
+  border-color: transparent;
+  background: transparent;
+}
+.btn-ghost:hover { background: var(--surface-hover); }
+
+.btn-icon {
+  padding: 6px;
+  border-radius: var(--radius-sm);
+  border-color: transparent;
+  background: transparent;
+  color: var(--ink-2);
+}
+.btn-icon:hover { background: var(--surface-hover); color: var(--ink); }
+
+.input-sm {
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+/* ─────── Window chrome ─────── */
+.titlebar {
+  -webkit-app-region: drag;
+  user-select: none;
+  background: var(--surface-base);
+  border-bottom: 1px solid var(--hairline);
+}
+.titlebar * { -webkit-app-region: no-drag; }
+
+/* ─────── Results grid ─────── */
+.grid-cell {
+  padding: 5px 10px;
+  border-right: 1px solid var(--hairline);
+  border-bottom: 1px solid var(--hairline);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: var(--surface-deep);
+  color: var(--ink-2);
+  display: flex;
+  align-items: center;
+}
+.grid-cell.null { color: var(--ink-4); font-style: italic; }
+.grid-cell.edited {
+  background: var(--accent-tint);
+  color: var(--ink);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.grid-cell.new-row {
+  background: rgba(91, 227, 168, 0.10);
+  color: var(--ink);
+  box-shadow: inset 2px 0 0 var(--success);
+}
+.grid-cell.deleted-row {
+  background: rgba(242, 111, 111, 0.12);
+  color: var(--ink-3);
+  text-decoration: line-through;
+  box-shadow: inset 2px 0 0 var(--danger);
+}
+
+.grid-header {
+  background: var(--surface-raised);
+  font-weight: 500;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-3);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  cursor: pointer;
+  user-select: none;
+}
+
+/* ─────── Modal ─────── */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+.modal {
+  background: var(--surface-base);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 30px 80px -20px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.04);
+  max-width: 90vw;
+  max-height: 90vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ─────── Context menu ─────── */
+.context-menu {
+  position: fixed;
+  background: var(--surface-raised);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-md);
+  box-shadow: 0 18px 40px -10px rgba(0,0,0,0.6);
+  padding: 4px;
+  min-width: 200px;
+  z-index: 1000;
+  font-family: var(--font-ui);
+  font-size: 13px;
+}
+.context-menu-item {
+  padding: 7px 12px;
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-2);
+}
+.context-menu-item:hover { background: var(--surface-hover); color: var(--ink); }
+.context-menu-item.danger { color: var(--danger); }
+.context-menu-item.danger:hover { background: rgba(242, 111, 111, 0.10); }
+.context-menu-divider { height: 1px; background: var(--hairline); margin: 4px 0; }
+
+/* ─────── Tabs ─────── */
+.tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-right: 1px solid var(--hairline);
+  background: var(--surface-base);
+  cursor: pointer;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  max-width: 240px;
+  overflow: hidden;
+  color: var(--ink-3);
+  border-bottom: 2px solid transparent;
+  transition: color var(--dur-1) var(--ease-out), background var(--dur-1) var(--ease-out);
+}
+.tab.active {
+  background: var(--surface-deep);
+  color: var(--ink);
+  border-bottom-color: var(--accent);
+}
+.tab:hover:not(.active) { background: var(--surface-hover); color: var(--ink-2); }
+.tab-close {
+  border-radius: var(--radius-xs);
+  padding: 2px;
+  opacity: 0.5;
+  display: inline-flex;
+}
+.tab-close:hover { opacity: 1; background: var(--surface-hover); }
+
+/* ─────── Toast ─────── */
+.toast {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  padding: 12px 16px;
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  border: 1px solid var(--hairline-strong);
+  box-shadow: 0 18px 40px -10px rgba(0,0,0,0.6);
+  font-size: 13px;
+  font-family: var(--font-ui);
+  z-index: 200;
+  max-width: 360px;
+  color: var(--ink);
+  border-left: 3px solid var(--accent);
+}
+.toast.error   { border-left-color: var(--danger); }
+.toast.success { border-left-color: var(--success); }
+
+/* ─────── Spinner ─────── */
+.spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--hairline);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.85s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ink-4);
+}
+.dot.live {
+  background: var(--success);
+  box-shadow: 0 0 8px rgba(91, 227, 168, 0.6);
+}
+.dot.amber {
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent-glow);
+  animation: amber-pulse 2.4s ease-in-out infinite;
+}
+@keyframes amber-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+/* ─────── Misc ─────── */
+.kbd {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: var(--radius-xs);
+  background: var(--surface-raised);
+  border: 1px solid var(--hairline);
+  border-bottom-width: 2px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-2);
+}
+
+.tag {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: var(--radius-xs);
+  font-size: 11px;
+  background: var(--accent-tint);
+  color: var(--accent);
+  font-family: var(--font-mono);
+}
+
+.section-title {
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-4);
+  padding: 12px 14px 6px;
+  font-family: var(--font-ui);
+}
+
+/* ─────── Schema tree ─────── */
+.tree-row {
+  display: flex;
+  align-items: center;
+  padding: 3px 10px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 12.5px;
+  font-family: var(--font-mono);
+  gap: 6px;
+  border-radius: 0;
+  color: var(--ink-2);
+  border-left: 2px solid transparent;
+  transition: background var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out);
+}
+.tree-row:hover { background: var(--surface-hover); color: var(--ink); }
+.tree-row.active {
+  background: var(--accent-tint);
+  color: var(--ink);
+  border-left-color: var(--accent);
+}
+
+/* ─────── Split handle ─────── */
+.split-handle {
+  width: 4px;
+  cursor: col-resize;
+  background: transparent;
+  position: relative;
+  transition: background var(--dur-1) var(--ease-out);
+}
+.split-handle:hover { background: var(--accent); }
+.split-handle.h {
+  width: auto;
+  height: 4px;
+  cursor: row-resize;
+}
+
+/* SQL editor (monaco) gets to keep its own theme — we just tint the container */
+.monaco-editor-wrap { background: var(--surface-deep); }

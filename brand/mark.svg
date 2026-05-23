@@ -1,0 +1,25 @@
+<!-- Mili DB Explorer standalone mark. 64×64 grid. No background. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!-- M monogram. Bbox 19..45 wide, 19.5..44.5 tall. -->
+  <path
+    fill="currentColor"
+    d="
+      M 19 44.5
+      L 19 19.5
+      L 28.75 19.5
+      L 32 25.5
+      L 35.25 19.5
+      L 45 19.5
+      L 45 44.5
+      L 39 44.5
+      L 39 30.5
+      L 34.5 39
+      L 29.5 39
+      L 25 30.5
+      L 25 44.5
+      Z
+    "
+  />
+  <!-- Amber active-row bar -->
+  <rect x="26.5" y="35.5" width="11" height="3.5" rx="0.5" fill="#F5A524"/>
+</svg>

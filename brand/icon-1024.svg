@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- App icon for Mili DB Explorer. 1024×1024. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- Background: deep graphite, macOS Big Sur+ corner radius (22.37%) -->
+  <rect x="0" y="0" width="1024" height="1024" rx="229" ry="229" fill="#0B0D11"/>
+
+  <!-- Hairline edge highlight -->
+  <rect x="1" y="1" width="1022" height="1022" rx="228" ry="228"
+        fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="2"/>
+
+  <!--
+    M monogram drawn as one continuous filled path so the V tip lands cleanly.
+    Outer rectangle 416 wide, inner cut leaves the M shape.
+    Bounding box: x 304..720, y 312..712. Stroke thickness 96.
+  -->
+  <path
+    fill="#F5F6F8"
+    d="
+      M 304 712
+      L 304 312
+      L 460 312
+      L 512 408
+      L 564 312
+      L 720 312
+      L 720 712
+      L 624 712
+      L 624 488
+      L 552 624
+      L 472 624
+      L 400 488
+      L 400 712
+      Z
+    "
+  />
+
+  <!-- Amber 'active row' bar — sits inside the V cradle, the focal beat of the mark -->
+  <rect x="424" y="568" width="176" height="56" rx="6" fill="#F5A524"/>
+</svg>

@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "outDir": "dist-tests",
+    "rootDir": ".",
+    "strict": true,
+    "noImplicitAny": false,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true
+  },
+  "include": ["tests", "src/main/db.ts", "src/main/license.ts", "src/shared/**/*"],
+  "exclude": ["node_modules", "dist", "dist-electron", "dist-tests", "src/renderer", "src/preload", "src/main/main.ts", "src/main/store.ts"]
+}

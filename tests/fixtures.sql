@@ -1,0 +1,378 @@
+-- Comprehensive Postgres fixtures for Mili DB Explorer tests.
+-- Designed to exercise every introspection / data-handling path.
+
+set client_min_messages to warning;
+
+-- Extra schemas (for cross-schema testing)
+create schema if not exists app;
+create schema if not exists reporting;
+create schema if not exists "Mixed Case";
+
+-- Enum and composite types
+create type app.user_role as enum ('admin', 'editor', 'viewer');
+create type app.address as (street text, city text, zip text);
+create domain app.email_t as text check (value ~* '^[^@]+@[^@]+\.[^@]+$');
+
+-- ============================================================
+-- USERS (PK serial, comments, indexes, check)
+-- ============================================================
+create table app.users (
+  id serial primary key,
+  email app.email_t not null unique,
+  role app.user_role not null default 'viewer',
+  display_name varchar(80) not null,
+  bio text,
+  age int check (age is null or age between 0 and 150),
+  is_active boolean not null default true,
+  metadata jsonb default '{}'::jsonb,
+  address app.address,
+  tags text[] default '{}',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz
+);
+comment on table app.users is 'Application users';
+comment on column app.users.email is 'RFC-5321 email address';
+
+create index users_email_lower_idx on app.users (lower(email));
+create index users_active_idx on app.users (is_active) where is_active = true;
+create index users_tags_gin on app.users using gin (tags);
+create index users_metadata_gin on app.users using gin (metadata);
+
+-- ============================================================
+-- POSTS (FK, composite unique, generated column)
+-- ============================================================
+create table app.posts (
+  id bigserial primary key,
+  author_id int not null references app.users(id) on delete cascade on update restrict,
+  slug text not null,
+  title text not null,
+  body text,
+  status text not null default 'draft' check (status in ('draft','published','archived')),
+  published_at timestamptz,
+  view_count bigint not null default 0,
+  rating numeric(4,2),
+  tsv tsvector generated always as (to_tsvector('english', coalesce(title,'') || ' ' || coalesce(body,''))) stored,
+  unique (author_id, slug)
+);
+create index posts_status_idx on app.posts (status, published_at desc);
+create index posts_tsv_idx on app.posts using gin (tsv);
+
+-- ============================================================
+-- COMMENTS (self-referential)
+-- ============================================================
+create table app.comments (
+  id bigserial primary key,
+  post_id bigint not null references app.posts(id) on delete cascade,
+  parent_id bigint references app.comments(id) on delete cascade,
+  author_id int references app.users(id) on delete set null,
+  body text not null,
+  created_at timestamptz default now()
+);
+create index comments_parent_idx on app.comments (parent_id) where parent_id is not null;
+
+-- ============================================================
+-- ORDERS — composite primary key
+-- ============================================================
+create table app.orders (
+  region text not null,
+  order_no int not null,
+  customer_id int references app.users(id),
+  total numeric(12,2) not null,
+  currency char(3) not null default 'USD',
+  placed_at timestamptz not null default now(),
+  primary key (region, order_no)
+);
+
+create table app.order_items (
+  region text not null,
+  order_no int not null,
+  line_no smallint not null,
+  sku text not null,
+  qty int not null check (qty > 0),
+  unit_price numeric(10,2) not null check (unit_price >= 0),
+  primary key (region, order_no, line_no),
+  foreign key (region, order_no) references app.orders(region, order_no) on delete cascade
+);
+
+-- ============================================================
+-- A table covering every (commonly used) Postgres type
+-- ============================================================
+create table app.kitchen_sink (
+  id int primary key,
+  c_bool boolean,
+  c_smallint smallint,
+  c_int int,
+  c_bigint bigint,
+  c_real real,
+  c_double double precision,
+  c_numeric numeric(20,5),
+  c_text text,
+  c_varchar varchar(50),
+  c_char char(10),
+  c_bytea bytea,
+  c_json json,
+  c_jsonb jsonb,
+  c_uuid uuid,
+  c_date date,
+  c_time time,
+  c_timetz time with time zone,
+  c_timestamp timestamp,
+  c_timestamptz timestamptz,
+  c_interval interval,
+  c_inet inet,
+  c_cidr cidr,
+  c_macaddr macaddr,
+  c_money money,
+  c_xml xml,
+  c_int_arr int[],
+  c_text_arr text[],
+  c_jsonb_arr jsonb[],
+  c_int4range int4range,
+  c_tstzrange tstzrange,
+  c_point point
+);
+
+-- ============================================================
+-- IDENTITY column variants
+-- ============================================================
+create table app.t_identity_always (
+  id int generated always as identity primary key,
+  v text
+);
+
+create table app.t_identity_by_default (
+  id int generated by default as identity primary key,
+  v text
+);
+
+-- ============================================================
+-- Quoted identifiers / reserved words / unicode
+-- ============================================================
+create table "Mixed Case"."Order Items" (
+  "ID" int primary key,
+  "Mixed Col" text,
+  "select" text  -- reserved word as column
+);
+insert into "Mixed Case"."Order Items" values (1, 'hello', 'world');
+
+create table app."weird-name with space" (
+  id int primary key,
+  "weird col" text
+);
+insert into app."weird-name with space" values (1, 'wild');
+
+create table app.unicode_тест (
+  id int primary key,
+  имя text
+);
+insert into app.unicode_тест values (1, 'значение');
+
+-- ============================================================
+-- Inheritance & partitioning
+-- ============================================================
+create table app.measurements (
+  id bigserial,
+  city text not null,
+  recorded_at timestamptz not null,
+  temperature numeric(5,2),
+  primary key (id, recorded_at)
+) partition by range (recorded_at);
+
+create table app.measurements_2024 partition of app.measurements
+  for values from ('2024-01-01') to ('2025-01-01');
+create table app.measurements_2025 partition of app.measurements
+  for values from ('2025-01-01') to ('2026-01-01');
+
+create table app.events_by_kind (
+  id bigserial,
+  kind text not null,
+  payload jsonb,
+  created_at timestamptz default now(),
+  primary key (id, kind)
+) partition by list (kind);
+create table app.events_login partition of app.events_by_kind for values in ('login');
+create table app.events_purchase partition of app.events_by_kind for values in ('purchase');
+create table app.events_other partition of app.events_by_kind default;
+
+-- ============================================================
+-- Views and materialized views
+-- ============================================================
+create view app.v_active_users as
+  select id, email, display_name from app.users where is_active = true;
+
+create view app.v_user_post_counts as
+  select u.id, u.email, count(p.id) as post_count
+  from app.users u
+  left join app.posts p on p.author_id = u.id
+  group by u.id, u.email;
+
+create materialized view reporting.user_stats as
+  select u.id, u.email, count(p.id) as posts, max(p.published_at) as last_post
+  from app.users u
+  left join app.posts p on p.author_id = u.id
+  group by u.id, u.email
+  with no data;
+
+-- ============================================================
+-- Functions / triggers / sequences
+-- ============================================================
+create function app.bump_updated_at() returns trigger language plpgsql as $$
+begin
+  new.updated_at = now();
+  return new;
+end
+$$;
+
+create trigger users_bump_updated_at
+  before update on app.users
+  for each row execute function app.bump_updated_at();
+
+create function app.add(a int, b int) returns int language sql immutable as $$
+  select a + b;
+$$;
+
+create function app.greet(name text default 'world') returns text language plpgsql as $$
+begin return 'hello, ' || name; end
+$$;
+
+create function app.tally(items int[]) returns int language sql as $$
+  select coalesce(sum(x),0)::int from unnest(items) as x;
+$$;
+
+create sequence app.invoice_no_seq start 1000 increment 1 minvalue 1000 maxvalue 99999;
+
+-- ============================================================
+-- Exclusion constraint table
+-- ============================================================
+create extension if not exists btree_gist;
+create table app.bookings (
+  id bigserial primary key,
+  room text not null,
+  during tstzrange not null,
+  exclude using gist (room with =, during with &&)
+);
+
+-- ============================================================
+-- A table with NO primary key (tests editor warning path)
+-- ============================================================
+create table app.no_pk_table (
+  a int,
+  b text
+);
+
+-- ============================================================
+-- Empty table
+-- ============================================================
+create table app.empty_table (
+  id int primary key,
+  v text
+);
+
+-- ============================================================
+-- Reasonably large table for pagination / count tests
+-- ============================================================
+create table app.big_numbers (
+  n int primary key,
+  squared bigint not null,
+  label text not null
+);
+insert into app.big_numbers
+select g, (g::bigint)*g, 'row-' || g from generate_series(1, 5000) g;
+
+-- ============================================================
+-- Seed data
+-- ============================================================
+insert into app.users (email, role, display_name, bio, age, is_active, metadata, address, tags) values
+  ('alice@example.com', 'admin',  'Alice',  'admin user',    32, true,  '{"prefs":{"dark":true}}', row('1 Main','Springfield','12345')::app.address, '{founder,admin}'),
+  ('bob@example.com',   'editor', 'Bob',    null,            45, true,  '{}', row('2 Oak','Shelbyville','67890')::app.address, '{editor}'),
+  ('charlie@x.com',     'viewer', 'Charlie','silent reader', null, false,'{"prefs":{"dark":false}}', null, '{}'),
+  ('eve@example.com',   'editor', 'Eve',    'has comma, and "quotes"', 28, true, '{"flags":["beta","prerelease"]}', null, '{tester}'),
+  ('日本人@example.com',  'viewer', '日本太郎',  'unicode test', 27, true, '{}', null, '{i18n}');
+
+insert into app.posts (author_id, slug, title, body, status, published_at, view_count, rating) values
+  (1, 'hello-world', 'Hello, World', 'First post body', 'published', now() - interval '10 days', 1200, 4.50),
+  (1, 'tips-and-tricks', 'Tips and Tricks', 'Tips...', 'published', now() - interval '5 days', 500, 4.10),
+  (2, 'draft-thoughts', 'Draft Thoughts', null, 'draft', null, 0, null),
+  (2, 'archived-note', 'Archived Note', 'Old content', 'archived', now() - interval '400 days', 50, 2.30),
+  (4, 'eve-post', E'Title with newline\nand "quotes" + 안녕', 'body', 'published', now(), 10, 3.50);
+
+insert into app.comments (post_id, parent_id, author_id, body) values
+  (1, null, 2, 'Great post!'),
+  (1, 1,    1, 'Thanks Bob.'),
+  (1, 2,    4, 'I agree!'),
+  (2, null, 4, 'Nice tips.'),
+  (5, null, null, 'anon comment');
+
+insert into app.orders (region, order_no, customer_id, total, currency) values
+  ('us-east', 1001, 1, 199.99, 'USD'),
+  ('us-east', 1002, 2,  49.50, 'USD'),
+  ('eu-west', 2001, 4, 220.00, 'EUR');
+
+insert into app.order_items (region, order_no, line_no, sku, qty, unit_price) values
+  ('us-east', 1001, 1, 'SKU-A', 2, 50.00),
+  ('us-east', 1001, 2, 'SKU-B', 1, 99.99),
+  ('us-east', 1002, 1, 'SKU-A', 1, 49.50),
+  ('eu-west', 2001, 1, 'SKU-C', 4, 55.00);
+
+insert into app.kitchen_sink (
+  id, c_bool, c_smallint, c_int, c_bigint, c_real, c_double, c_numeric,
+  c_text, c_varchar, c_char, c_bytea,
+  c_json, c_jsonb, c_uuid,
+  c_date, c_time, c_timetz, c_timestamp, c_timestamptz, c_interval,
+  c_inet, c_cidr, c_macaddr, c_money, c_xml,
+  c_int_arr, c_text_arr, c_jsonb_arr,
+  c_int4range, c_tstzrange, c_point
+) values
+(
+  1, true, 32767, 2147483647, 9223372036854775807, 3.14::real, 2.718281828::double precision, 123456789.12345,
+  E'line1\nline2\t"q"', 'varchar', 'fixed', E'\\xdeadbeef',
+  '{"a":1,"b":[1,2]}', '{"a":1,"b":[1,2]}', '11111111-1111-1111-1111-111111111111',
+  '2024-06-15', '13:45:00', '13:45:00+05:30', '2024-06-15 13:45:00', '2024-06-15 13:45:00+00', interval '1 day 2 hours 3 seconds',
+  '192.168.1.1', '10.0.0.0/8', '08:00:2b:01:02:03', 1234.56::money, '<root><x>1</x></root>',
+  array[1,2,3], array['a','b','c'], array['{"k":1}'::jsonb,'{"k":2}'::jsonb],
+  '[1,10)'::int4range, tstzrange('2024-01-01','2024-12-31'), point(1.5, 2.5)
+),
+(
+  2, null, null, null, null, null, null, null,
+  null, null, null, null,
+  null, null, null,
+  null, null, null, null, null, null,
+  null, null, null, null, null,
+  null, null, null,
+  null, null, null
+),
+(
+  3, false, -32768, -2147483648, -9223372036854775808, 'NaN'::real, 'Infinity'::double precision, 0,
+  '', '', '', E'\\x',
+  'null'::json, 'null'::jsonb, '00000000-0000-0000-0000-000000000000',
+  '0001-01-01', '00:00:00', '00:00:00+00', '0001-01-01 00:00:00', 'epoch'::timestamptz, interval '0',
+  '::1', '::/0', '00:00:00:00:00:00', 0::money, '<empty/>',
+  '{}'::int[], '{}'::text[], '{}'::jsonb[],
+  'empty'::int4range, 'empty'::tstzrange, point(0,0)
+);
+
+insert into app.t_identity_by_default (v) values ('a'), ('b'), ('c');
+-- t_identity_always requires omitting id
+
+insert into app.measurements (city, recorded_at, temperature) values
+  ('NYC', '2024-06-15 12:00:00+00', 28.50),
+  ('NYC', '2024-12-15 12:00:00+00', -2.00),
+  ('LA',  '2025-01-15 12:00:00+00', 18.75);
+
+insert into app.events_by_kind (kind, payload) values
+  ('login', '{"user":1}'),
+  ('purchase', '{"amount":99}'),
+  ('logout', '{"user":1}');
+
+refresh materialized view reporting.user_stats;
+
+-- Permissions experiment (just create a role to query)
+do $$ begin
+  if not exists (select 1 from pg_roles where rolname = 'read_only_demo') then
+    create role read_only_demo nologin;
+  end if;
+end $$;
+grant usage on schema app to read_only_demo;
+grant select on app.users to read_only_demo;
+
+analyze;

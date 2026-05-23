@@ -1,0 +1,94 @@
+{
+  "name": "mili-db-explorer",
+  "version": "1.2.4",
+  "description": "A great Postgres DB Explorer (TablePlus-class), built with Electron",
+  "main": "dist-electron/main/main.js",
+  "homepage": "./",
+  "author": "Mili",
+  "license": "Commercial",
+  "private": true,
+  "scripts": {
+    "dev:renderer": "vite",
+    "dev:electron": "VITE_DEV_SERVER_URL=http://localhost:5173 electron .",
+    "build:renderer": "vite build",
+    "build:electron": "tsc -p tsconfig.electron.json",
+    "prebuild": "tsc -p tsconfig.electron.json",
+    "build": "tsc -p tsconfig.electron.json && vite build",
+    "dist": "npm run build && electron-builder",
+    "start": "npm run build && electron .",
+    "preview": "vite preview",
+    "test": "tsc -p tsconfig.tests.json && node dist-tests/tests/run.js",
+    "bench": "tsc -p tsconfig.tests.json && node dist-tests/tests/perf/bench.js",
+    "check:bundle-size": "node scripts/check-bundle-size.cjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.electron.json --noEmit",
+    "release:mac": "bash scripts/build-mac.sh",
+    "release:deploy": "bash scripts/deploy-vercel.sh",
+    "release:all": "npm run release:mac && npm run release:deploy"
+  },
+  "dependencies": {
+    "@monaco-editor/react": "^4.6.0",
+    "@tanstack/react-table": "^8.20.5",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.460.0",
+    "monaco-editor": "^0.52.0",
+    "pg": "^8.13.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "sql-formatter": "^15.4.2",
+    "uuid": "^11.0.3",
+    "zustand": "^5.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "@types/pg": "^8.11.10",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@types/uuid": "^10.0.0",
+    "@vitejs/plugin-react": "^4.3.3",
+    "autoprefixer": "^10.4.20",
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.15",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11",
+    "vite-plugin-electron": "^0.28.8",
+    "vite-plugin-electron-renderer": "^0.14.6"
+  },
+  "build": {
+    "appId": "ai.getmili.postgres_db_explorer",
+    "productName": "Mili DB Explorer",
+    "artifactName": "Mili-DB-Explorer-${version}-${arch}.${ext}",
+    "files": [
+      "dist/**",
+      "dist-electron/**",
+      "package.json"
+    ],
+    "directories": {
+      "buildResources": "build",
+      "output": "release"
+    },
+    "afterSign": "scripts/notarize.cjs",
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "target": [
+        { "target": "dmg", "arch": ["arm64", "x64"] }
+      ],
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "identity": "Mili Software Inc. (PGZ497J325)",
+      "notarize": false
+    },
+    "dmg": {
+      "sign": false
+    },
+    "win": {
+      "target": ["nsis"]
+    },
+    "linux": {
+      "target": ["AppImage", "deb"]
+    }
+  }
+}
