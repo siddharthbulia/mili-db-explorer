@@ -1,3 +1,9 @@
+/* CSS specifies that all @import rules MUST come before any other statements
+   (besides @charset / @layer). Tailwind directives count as statements once
+   Vite resolves them, so the @imports go above the @tailwind block. */
+@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://api.fontshare.com/v2/css?f[]=general-sans@400,500,600,700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -9,9 +15,6 @@
   Studio Quiet is dark-only by design.
   ─────────────────────────────────────────────────────────────────────────
 */
-
-@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap');
-@import url('https://api.fontshare.com/v2/css?f[]=general-sans@400,500,600,700&display=swap');
 
 :root {
   /* Studio Quiet tokens */

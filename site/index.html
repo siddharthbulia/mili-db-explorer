@@ -138,11 +138,23 @@
       h1.hero-h {
         font-family: var(--font-ui);
         font-weight: 600;
-        font-size: clamp(42px, 6.8vw, 76px);
-        line-height: 1.04;
+        font-size: clamp(34px, 6.4vw, 76px);
+        line-height: 1.05;
         letter-spacing: -0.035em;
         margin: 0 0 22px;
         max-width: 880px;
+        overflow-wrap: break-word;
+        word-break: break-word;
+      }
+      /* Narrow phones: tighter outer padding + tighter hero font so the
+         heading + lede always fit cleanly. The explicit <br> in the hero
+         is hidden so the text wraps naturally at small widths. */
+      @media (max-width: 480px) {
+        .wrap { padding: 0 16px; }
+        header.hero { padding: 56px 0 36px; }
+        h1.hero-h { font-size: 26px; line-height: 1.15; }
+        .hero-br { display: none; }
+        .lede { font-size: 16px; }
       }
       h1.hero-h .display {
         font-family: var(--font-display);
@@ -519,7 +531,7 @@
         <span>v<span id="hero-version">1.1</span> · signed for macOS · arm64 + intel</span>
       </div>
       <h1 class="hero-h">
-        A Postgres client built<br/>
+        A Postgres client built<br class="hero-br"/>
         <span class="display">for craftsmen.</span>
       </h1>
       <p class="lede">
