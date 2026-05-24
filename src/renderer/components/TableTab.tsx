@@ -47,7 +47,14 @@ export function TableTab({ tabId }: { tabId: string }) {
         {conn?.color && (
           <span style={{ width: 6, height: 6, borderRadius: 999, background: conn.color, flexShrink: 0 }} />
         )}
-        <span style={{ color: 'var(--ink)', fontWeight: 600 }}>{(conn?.name || 'LOCAL').toUpperCase()}</span>
+        {/* Connection name → opens the command palette (quick-switch). */}
+        <BreadcrumbButton
+          label={(conn?.name || 'LOCAL').toUpperCase()}
+          color="var(--ink)"
+          bold
+          title="Switch connection (⌘P)"
+          onClick={() => useApp.getState().setShowCommandPalette(true)}
+        />
         <span style={{ opacity: 0.5 }}>|</span>
         <span title={version}>{shortVersion(version)}</span>
         <span style={{ opacity: 0.5 }}>:</span>
@@ -55,7 +62,20 @@ export function TableTab({ tabId }: { tabId: string }) {
         <span style={{ opacity: 0.5 }}>:</span>
         <span>{conn?.database}</span>
         <span style={{ opacity: 0.5 }}>:</span>
-        <span style={{ color: 'var(--accent)' }}>{tab.schema}.{tab.table}</span>
+        {/* Schema → palette pre-filtered, table → Structure tab. */}
+        <BreadcrumbButton
+          label={tab.schema}
+          color="var(--accent)"
+          title={`Browse ${tab.schema}.*  (⌘P)`}
+          onClick={() => useApp.getState().setShowCommandPalette(true)}
+        />
+        <span style={{ color: 'var(--accent)', opacity: 0.4 }}>.</span>
+        <BreadcrumbButton
+          label={tab.table}
+          color="var(--accent)"
+          title="Switch to Structure tab"
+          onClick={() => updateTab(tabId, { view: tab.view === 'data' ? 'structure' : 'data' })}
+        />
       </div>
 
       <div style={{
@@ -115,6 +135,8 @@ function DataView({ tab, tabId }: { tab: any; tabId: string }) {
   const settings = useApp((s) => s.settings);
   const showToast = useApp((s) => s.showToast);
   const openTableTab = useApp((s) => s.openTableTab);
+  const newSqlTab = useApp((s) => s.newSqlTab);
+  const updateTab = useApp((s) => s.updateTab);
   const recordRecent = useApp((s) => s.recordRecent);
 
   const [page, setPage] = useState(0);
@@ -147,6 +169,18 @@ function DataView({ tab, tabId }: { tab: any; tabId: string }) {
   const [loadStartedAt, setLoadStartedAt] = useState<number | null>(null);
   const [lastLoadMs, setLastLoadMs] = useState<number | null>(null);
   const [showBuilder, setShowBuilder] = useState(false);
+  // v2 auto-refresh: per-row signature from the previous load so we can flag
+  // changed/new rows after the next one.
+  const previousRowSigsRef = React.useRef<Map<string, string>>(new Map());
+  const [changedKeys, setChangedKeys] = useState<Set<string>>(new Set());
+  const [insertedKeys, setInsertedKeys] = useState<Set<string>>(new Set());
+  // v3: pause auto-refresh while the window is hidden.
+  const [tabVisible, setTabVisible] = useState<boolean>(typeof document === 'undefined' ? true : !document.hidden);
+  useEffect(() => {
+    const h = () => setTabVisible(!document.hidden);
+    document.addEventListener('visibilitychange', h);
+    return () => document.removeEventListener('visibilitychange', h);
+  }, []);
 
   // Record recents whenever this tab is shown.
   useEffect(() => {
@@ -178,7 +212,40 @@ function DataView({ tab, tabId }: { tab: any; tabId: string }) {
         api.getTableDetails(tab.connectionId, tab.schema, tab.table),
       ]);
       if (!r.ok) { setError(r.error.message); setResult(null); }
-      else { setResult(r.results[0]); }
+      else {
+        const fresh = r.results[0];
+        // v2 diff: compute per-row signatures keyed by PK. We don't have the
+        // details object yet on first load, so we re-derive PK from the
+        // result columns matched against the (just-fetched) details below.
+        // Until then, fall back to a stringified-row signature.
+        const detailsForDiff = (d as any) || null;
+        const pkColsForDiff = detailsForDiff
+          ? (detailsForDiff.columns || []).filter((c: any) => c.isPrimaryKey).map((c: any) => c.name)
+          : [];
+        const nextSigs = new Map<string, string>();
+        const newChanged = new Set<string>();
+        const newInserted = new Set<string>();
+        const colIdx = (n: string) => fresh.columns.findIndex((cc) => cc.name === n);
+        for (const row of fresh.rows) {
+          const key = pkColsForDiff.length
+            ? pkColsForDiff.map((p: string) => String(row[colIdx(p)])).join('|')
+            : JSON.stringify(row);
+          const sig = row.map((v) => (v === null ? '\0' : typeof v === 'object' ? JSON.stringify(v) : String(v))).join('');
+          nextSigs.set(key, sig);
+          const prev = previousRowSigsRef.current.get(key);
+          if (prev === undefined) {
+            // No prior signature → only flag as "inserted" if we *had* any prior
+            // data at all (i.e. this isn't the very first load).
+            if (previousRowSigsRef.current.size > 0) newInserted.add(key);
+          } else if (prev !== sig) {
+            newChanged.add(key);
+          }
+        }
+        setChangedKeys(newChanged);
+        setInsertedKeys(newInserted);
+        previousRowSigsRef.current = nextSigs;
+        setResult(fresh);
+      }
       if (c.ok && c.results[0]?.rows[0]?.[0] != null) {
         setTotalCount(Number(c.results[0].rows[0][0]));
       }
@@ -187,6 +254,8 @@ function DataView({ tab, tabId }: { tab: any; tabId: string }) {
       setNewRows([]);
       setDeletedKeys(new Set());
       setSelectedRowIdxs(new Set());
+      undoStackRef.current = [];
+      redoStackRef.current = [];
     } catch (e: any) {
       setError(e?.message || String(e));
     } finally {
@@ -198,12 +267,13 @@ function DataView({ tab, tabId }: { tab: any; tabId: string }) {
 
   useEffect(() => { load(); }, [load]);
 
-  // Auto-refresh on a configurable interval.
+  // Auto-refresh on a configurable interval. v3: paused when the window is
+  // hidden (Page Visibility API) so we don't hammer the DB from background tabs.
   useEffect(() => {
-    if (!refreshInterval) return;
+    if (!refreshInterval || !tabVisible) return;
     const h = setInterval(() => load(), refreshInterval * 1000);
     return () => clearInterval(h);
-  }, [refreshInterval, load]);
+  }, [refreshInterval, load, tabVisible]);
 
   // Cmd+F toggles the find bar.
   useEffect(() => {
@@ -377,12 +447,24 @@ function DataView({ tab, tabId }: { tab: any; tabId: string }) {
     return () => window.removeEventListener('mili:apply-table-filter', handler);
   }, [tabId]);
 
+  // v2 undo/redo stack. Each entry captures enough to invert the edit.
+  type EditOp =
+    | { kind: 'cell'; key: string; column: string; before: any; after: any }
+    | { kind: 'newcell'; ni: number; column: string; before: any; after: any };
+  const undoStackRef = React.useRef<EditOp[]>([]);
+  const redoStackRef = React.useRef<EditOp[]>([]);
+
   function onCellEdit(rowIdx: number, columnName: string, newValue: any) {
     if (!result) return;
     const row = result.rows[rowIdx];
     if (!row) return;
     const k = rowKey(row);
     if (!k) { showToast('error', 'No primary key — cannot stage edit'); return; }
+    // Record undo: the "before" is whatever's currently in edits or the row.
+    const ci = result.columns.findIndex((c) => c.name === columnName);
+    const before = edits.get(k)?.[columnName] ?? row[ci];
+    undoStackRef.current.push({ kind: 'cell', key: k, column: columnName, before, after: newValue });
+    redoStackRef.current = [];
     setEdits((m) => {
       const n = new Map(m);
       const cur = n.get(k) || {};
@@ -391,12 +473,57 @@ function DataView({ tab, tabId }: { tab: any; tabId: string }) {
     });
   }
   function onNewRowEdit(ni: number, columnName: string, newValue: any) {
+    const before = newRows[ni]?.[columnName];
+    undoStackRef.current.push({ kind: 'newcell', ni, column: columnName, before, after: newValue });
+    redoStackRef.current = [];
     setNewRows((cur) => {
       const copy = [...cur];
       copy[ni] = { ...copy[ni], [columnName]: newValue };
       return copy;
     });
   }
+
+  function applyEditOp(op: EditOp, direction: 'undo' | 'redo') {
+    const target = direction === 'undo' ? op.before : op.after;
+    if (op.kind === 'cell') {
+      setEdits((m) => {
+        const n = new Map(m);
+        const cur = n.get(op.key) || {};
+        n.set(op.key, { ...cur, [op.column]: target });
+        return n;
+      });
+    } else {
+      setNewRows((cur) => {
+        const copy = [...cur];
+        copy[op.ni] = { ...copy[op.ni], [op.column]: target };
+        return copy;
+      });
+    }
+  }
+
+  function undoEdit() {
+    const op = undoStackRef.current.pop();
+    if (!op) return;
+    applyEditOp(op, 'undo');
+    redoStackRef.current.push(op);
+  }
+  function redoEdit() {
+    const op = redoStackRef.current.pop();
+    if (!op) return;
+    applyEditOp(op, 'redo');
+    undoStackRef.current.push(op);
+  }
+
+  // ⌘Z / ⌘⇧Z for undo/redo while this tab is the active one.
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (e.key === 'z' && !e.shiftKey) { e.preventDefault(); undoEdit(); }
+      else if ((e.key === 'z' && e.shiftKey) || e.key === 'Z') { e.preventDefault(); redoEdit(); }
+    };
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
+  }, []);
 
   const totalPages = totalCount != null ? Math.max(1, Math.ceil(totalCount / pageSize)) : null;
   const isLastPage = !!result && (totalPages != null ? page >= totalPages - 1 : result.rowCount < pageSize);
@@ -407,8 +534,45 @@ function DataView({ tab, tabId }: { tab: any; tabId: string }) {
     if (!result) return [];
     const copyFormats = ['tsv', 'csv', 'json', 'insert', 'markdown'] as const;
     const fmtIdx = [rowIdx];
+
+    // v2: "Filter to this <col> = this value" — pulled from the active cell
+    // when there is one, falls back to the PK column.
+    const targetCol = activeCell?.columnName
+      || pkCols[0]
+      || result.columns[0]?.name;
+    const targetVal = activeCell ? activeCell.value : (() => {
+      if (!targetCol) return undefined;
+      const ci = result.columns.findIndex((c) => c.name === targetCol);
+      return ci >= 0 ? result.rows[rowIdx][ci] : undefined;
+    })();
+
     const items: any[] = [
       { label: 'Open cell inspector', onClick: () => setShowInspector(true) },
+      ...(targetCol ? [{
+        label: targetVal == null
+          ? `Filter to rows where "${targetCol}" IS NULL`
+          : `Filter to rows where "${targetCol}" = "${shorten(String(targetVal))}"`,
+        onClick: () => {
+          setColumnFilters([{
+            column: targetCol!,
+            op: targetVal == null ? 'is-null' : 'eq',
+            value: targetVal == null ? undefined : String(targetVal),
+          } as any]);
+          setPage(0);
+        },
+      }, {
+        label: targetVal == null
+          ? `Filter to rows where "${targetCol}" IS NOT NULL`
+          : `Filter to rows where "${targetCol}" <> "${shorten(String(targetVal))}"`,
+        onClick: () => {
+          setColumnFilters([{
+            column: targetCol!,
+            op: targetVal == null ? 'is-not-null' : 'neq',
+            value: targetVal == null ? undefined : String(targetVal),
+          } as any]);
+          setPage(0);
+        },
+      }] : []),
       { divider: true },
       ...copyFormats.map((f) => ({
         label: `Copy row as ${f.toUpperCase()}`,
@@ -716,6 +880,13 @@ function DataView({ tab, tabId }: { tab: any; tabId: string }) {
               freezeFirstColumn={freezeFirstCol}
               wrapCells={wrapCells}
               findText={findText}
+              changedRowKeys={changedKeys}
+              insertedRowKeys={insertedKeys}
+              rowKey={(row) => {
+                if (!pkCols.length || !result) return JSON.stringify(row);
+                const ci = (n: string) => result.columns.findIndex((c) => c.name === n);
+                return pkCols.map((p) => String(row[ci(p)])).join('|');
+              }}
               emptyMessage={
                 columnFilters.length || where
                   ? 'No rows match the current filters.'
@@ -832,19 +1003,20 @@ function DataView({ tab, tabId }: { tab: any; tabId: string }) {
       )}
 
       {showSql && (
-        <div className="modal-backdrop" onClick={() => setShowSql(false)}>
-          <div className="modal" style={{ width: 700, maxHeight: '70vh' }} onClick={(e) => e.stopPropagation()}>
-            <div style={{ padding: 12, borderBottom: '1px solid var(--hairline)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <strong>Generated SQL</strong>
-              <button className="btn" onClick={() => { navigator.clipboard.writeText(generatedSql); showToast('success', 'SQL copied'); }}>
-                <Copy size={12} /> Copy
-              </button>
-            </div>
-            <pre style={{ padding: 16, margin: 0, fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--ink)', whiteSpace: 'pre-wrap', overflow: 'auto' }}>
-              {generatedSql}
-            </pre>
-          </div>
-        </div>
+        <ShowSqlModal
+          initialSql={generatedSql}
+          onClose={() => setShowSql(false)}
+          onRunAsQuery={(sql) => {
+            const id = newSqlTab(tab.connectionId);
+            if (id) {
+              updateTab(id, {
+                sql,
+                title: `${tab.schema}.${tab.table} → query`,
+              } as any);
+              setShowSql(false);
+            }
+          }}
+        />
       )}
     </div>
   );
@@ -1152,6 +1324,27 @@ function Table({ headers, children }: { headers: string[]; children: React.React
   );
 }
 
+/** A clickable breadcrumb segment styled to fit in the monospace bar. */
+function BreadcrumbButton({ label, color, bold, title, onClick }: {
+  label: string; color?: string; bold?: boolean; title?: string; onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      style={{
+        background: 'transparent', border: 0, color: color || 'inherit',
+        fontFamily: 'inherit', fontSize: 'inherit', fontWeight: bold ? 600 : 'inherit',
+        padding: '0 2px', cursor: 'pointer', borderRadius: 3,
+      }}
+      onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--surface-hover)')}
+      onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+    >
+      {label}
+    </button>
+  );
+}
+
 function shortVersion(v?: string): string {
   if (!v) return 'pg';
   const m = /PostgreSQL\s+([0-9]+(?:\.[0-9]+)*)/i.exec(v);
@@ -1163,6 +1356,70 @@ function kindLabel(k: string) {
 }
 function conTypeLabel(t: string) {
   return { p: 'PRIMARY KEY', u: 'UNIQUE', c: 'CHECK', f: 'FOREIGN KEY', x: 'EXCLUSION' }[t] || t;
+}
+
+function ShowSqlModal({ initialSql, onClose, onRunAsQuery }: {
+  initialSql: string;
+  onClose: () => void;
+  onRunAsQuery: (sql: string) => void;
+}) {
+  const [sql, setSql] = useState(initialSql);
+  // Reset to the current generated SQL whenever it changes (filters / page etc).
+  useEffect(() => { setSql(initialSql); }, [initialSql]);
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" style={{ width: 720, maxHeight: '78vh' }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ padding: 12, borderBottom: '1px solid var(--hairline)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <strong>Generated SQL — editable</strong>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button
+              className="btn"
+              onClick={() => { setSql(initialSql); }}
+              title="Reset to the SQL the current grid is using"
+            >Reset</button>
+            <button
+              className="btn"
+              onClick={() => { navigator.clipboard.writeText(sql); }}
+              title="Copy current text"
+            >
+              <Copy size={12} /> Copy
+            </button>
+            <button
+              className="btn btn-primary"
+              onClick={() => onRunAsQuery(sql)}
+              title="Open a new SQL tab with this query"
+            >Run as query</button>
+          </div>
+        </div>
+        <textarea
+          value={sql}
+          onChange={(e) => setSql(e.target.value)}
+          spellCheck={false}
+          style={{
+            width: '100%',
+            minHeight: 280,
+            padding: 14,
+            border: 0,
+            background: 'var(--surface-deep)',
+            color: 'var(--ink)',
+            fontFamily: 'var(--font-mono)',
+            fontSize: 12,
+            lineHeight: 1.55,
+            resize: 'vertical',
+            outline: 'none',
+          }}
+        />
+        <div style={{ padding: '8px 14px', fontSize: 11, color: 'var(--ink-3)', fontFamily: 'var(--font-mono)', borderTop: '1px solid var(--hairline)' }}>
+          Edits stay in this modal until you click <b>Run as query</b>. The grid above won't change.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function shorten(s: string, max = 24): string {
+  if (s.length <= max) return s;
+  return s.slice(0, max - 1) + '…';
 }
 
 function findRowByKey(result: QueryResult, pkCols: string[], key: string): any[] {

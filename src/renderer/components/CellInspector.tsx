@@ -128,13 +128,10 @@ export function CellInspector(props: Props) {
             <option value="false">FALSE</option>
           </select>
         ) : isJson ? (
-          <textarea
-            className="input-sm"
+          <JsonEditor
             value={editValue}
-            onChange={(e) => setEditValue(e.target.value)}
+            onChange={setEditValue}
             disabled={!editable}
-            rows={5}
-            style={{ width: '100%', fontFamily: 'var(--font-mono)', fontSize: 12, resize: 'vertical' }}
           />
         ) : (
           <input
@@ -227,6 +224,124 @@ export function CellInspector(props: Props) {
         })}
       </div>
     </div>
+  );
+}
+
+/**
+ * Two-tab JSON editor: tree view (interactive, copy paths) + raw textarea.
+ * The raw value is always the source of truth — the tree re-parses on each
+ * render.
+ */
+function JsonEditor({ value, onChange, disabled }: { value: string; onChange: (s: string) => void; disabled: boolean }) {
+  const [mode, setMode] = useState<'tree' | 'raw'>('tree');
+  let parsed: any = undefined;
+  let parseError: string | null = null;
+  try { parsed = value === '' ? null : JSON.parse(value); }
+  catch (e: any) { parseError = e?.message || 'Invalid JSON'; }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div style={{ display: 'flex', gap: 4 }}>
+        <button
+          onClick={() => setMode('tree')}
+          className="btn"
+          style={{ padding: '3px 9px', fontSize: 11, background: mode === 'tree' ? 'var(--accent-tint)' : undefined, color: mode === 'tree' ? 'var(--accent)' : undefined }}
+        >Tree</button>
+        <button
+          onClick={() => setMode('raw')}
+          className="btn"
+          style={{ padding: '3px 9px', fontSize: 11, background: mode === 'raw' ? 'var(--accent-tint)' : undefined, color: mode === 'raw' ? 'var(--accent)' : undefined }}
+        >Raw</button>
+        <div style={{ flex: 1 }} />
+        {parseError && <span style={{ fontSize: 10.5, color: 'var(--danger)', alignSelf: 'center' }}>{parseError}</span>}
+      </div>
+      {mode === 'raw' ? (
+        <textarea
+          className="input-sm"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          disabled={disabled}
+          rows={6}
+          spellCheck={false}
+          style={{ width: '100%', fontFamily: 'var(--font-mono)', fontSize: 12, resize: 'vertical' }}
+        />
+      ) : (
+        <div
+          style={{
+            maxHeight: 260, overflow: 'auto',
+            border: '1px solid var(--hairline)',
+            borderRadius: 6, padding: 8,
+            background: 'var(--surface-deep)',
+            fontFamily: 'var(--font-mono)', fontSize: 11.5, lineHeight: 1.55,
+          }}
+        >
+          {parsed === undefined && <span style={{ color: 'var(--ink-3)' }}>(empty)</span>}
+          {parsed === null && value === '' && <span style={{ color: 'var(--ink-4)' }}>NULL</span>}
+          {parsed !== undefined && <JsonNode value={parsed} path="$" />}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Recursive renderer. Click any leaf or sub-tree to copy its JSON-pointer-ish
+ * path to the clipboard. Objects/arrays are collapsible.
+ */
+function JsonNode({ value, path }: { value: any; path: string }) {
+  const [open, setOpen] = useState(true);
+  if (value === null) return <span style={{ color: 'var(--ink-4)' }}>null</span>;
+  if (typeof value === 'boolean') return <span style={{ color: 'var(--success)' }}>{String(value)}</span>;
+  if (typeof value === 'number') return <span style={{ color: 'var(--accent)' }}>{value}</span>;
+  if (typeof value === 'string') return <span style={{ color: 'var(--success)' }}>"{value}"</span>;
+  if (Array.isArray(value)) {
+    return (
+      <span>
+        <CollapseToggle open={open} onToggle={() => setOpen(!open)} label={`[ ${value.length} ]`} path={path} />
+        {open && value.map((v, i) => (
+          <div key={i} style={{ marginLeft: 14 }}>
+            <span style={{ color: 'var(--ink-3)' }}>{i}: </span>
+            <JsonNode value={v} path={`${path}[${i}]`} />
+          </div>
+        ))}
+      </span>
+    );
+  }
+  if (typeof value === 'object') {
+    const keys = Object.keys(value);
+    return (
+      <span>
+        <CollapseToggle open={open} onToggle={() => setOpen(!open)} label={`{ ${keys.length} }`} path={path} />
+        {open && keys.map((k) => (
+          <div key={k} style={{ marginLeft: 14 }}>
+            <span
+              style={{ color: 'var(--ink-2)', cursor: 'pointer' }}
+              title={`Copy ${path}.${k}`}
+              onClick={() => { navigator.clipboard.writeText(`${path}.${k}`); }}
+            >"{k}"</span>
+            <span style={{ color: 'var(--ink-3)' }}>: </span>
+            <JsonNode value={value[k]} path={`${path}.${k}`} />
+          </div>
+        ))}
+      </span>
+    );
+  }
+  return <span>{String(value)}</span>;
+}
+
+function CollapseToggle({ open, onToggle, label, path }: { open: boolean; onToggle: () => void; label: string; path: string }) {
+  return (
+    <span>
+      <button
+        onClick={onToggle}
+        title={`Copy ${path}`}
+        style={{ background: 'transparent', border: 0, color: 'var(--ink-3)', padding: 0, cursor: 'pointer', fontFamily: 'var(--font-mono)', fontSize: 11.5 }}
+        onContextMenu={(e) => { e.preventDefault(); navigator.clipboard.writeText(path); }}
+      >
+        {open ? '▾ ' : '▸ '}
+      </button>
+      <span style={{ color: 'var(--ink-4)' }}>{label}</span>
+    </span>
   );
 }
 

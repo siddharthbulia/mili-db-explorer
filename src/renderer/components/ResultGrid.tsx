@@ -57,6 +57,12 @@ export interface ResultGridProps {
   wrapCells?: boolean;
   /** Substring filter applied client-side to rendered cell text. */
   findText?: string;
+  /** Row keys flagged as "changed since last auto-refresh" — amber flash. */
+  changedRowKeys?: Set<string>;
+  /** Row keys flagged as "inserted since last auto-refresh" — green flash. */
+  insertedRowKeys?: Set<string>;
+  /** Compute the row key for diff highlighting. Defaults to JSON.stringify. */
+  rowKey?: (row: any[]) => string;
 }
 
 export function ResultGrid(props: ResultGridProps) {
@@ -82,6 +88,9 @@ export function ResultGrid(props: ResultGridProps) {
     freezeFirstColumn = false,
     wrapCells = false,
     findText = '',
+    changedRowKeys,
+    insertedRowKeys,
+    rowKey: keyForRow,
   } = props;
 
   const [sortKeys, setSortKeys] = useState<SortKey[]>([]);
@@ -97,6 +106,8 @@ export function ResultGrid(props: ResultGridProps) {
     onActiveCellChange?.({ rowIdx: origIdx, columnIdx: s.col, columnName: col.name, columnType: col.dataType, value: val });
   };
   const [colWidths, setColWidths] = useState<number[]>(() => result.columns.map(() => 160));
+  /** v2 drag-to-reorder: an explicit order over column indexes. Defaults to identity. */
+  const [columnOrder, setColumnOrder] = useState<number[]>(() => result.columns.map((_, i) => i));
   const [inspect, setInspect] = useState<any>(null);
   const [showFilterRow, setShowFilterRow] = useState<boolean>((filters?.length ?? 0) > 0);
   const [editing, setEditing] = useState<CellPos | null>(null);
@@ -125,6 +136,7 @@ export function ResultGrid(props: ResultGridProps) {
       return w;
     }));
     setSortKeys([]);
+    setColumnOrder(result.columns.map((_, i) => i));
   }, [result]);
 
   // Combined row set: original rows + pending new rows (appended).
@@ -143,11 +155,13 @@ export function ResultGrid(props: ResultGridProps) {
   }, [foreignKeys]);
 
   const visibleColIdx = useMemo(() => {
-    if (!visibleColumns) return result.columns.map((_, i) => i);
-    return result.columns
-      .map((c, i) => (visibleColumns.has(c.name) ? i : -1))
-      .filter((i) => i >= 0);
-  }, [result.columns, visibleColumns]);
+    // Apply the user's column order, then drop any hidden columns.
+    const ordered = columnOrder.length === result.columns.length
+      ? columnOrder
+      : result.columns.map((_, i) => i);
+    if (!visibleColumns) return ordered;
+    return ordered.filter((i) => visibleColumns.has(result.columns[i]?.name));
+  }, [result.columns, visibleColumns, columnOrder]);
 
   // Client-side find: a substring filter applied against the joined-row text.
   const findFiltered = useMemo(() => {
@@ -555,9 +569,35 @@ export function ResultGrid(props: ResultGridProps) {
               <div
                 key={i}
                 className="grid-header grid-cell"
+                draggable
+                onDragStart={(e) => {
+                  // v2 drag-to-reorder. We carry the column index, not the
+                  // display position — visibleColIdx maps display→data anyway.
+                  e.dataTransfer.setData('application/x-mili-col', String(i));
+                  e.dataTransfer.effectAllowed = 'move';
+                }}
+                onDragOver={(e) => {
+                  if (e.dataTransfer.types.includes('application/x-mili-col')) {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'move';
+                  }
+                }}
+                onDrop={(e) => {
+                  const src = Number(e.dataTransfer.getData('application/x-mili-col'));
+                  if (Number.isNaN(src) || src === i) return;
+                  e.preventDefault();
+                  setColumnOrder((cur) => {
+                    const cols = cur.length === result.columns.length ? cur : result.columns.map((_, ii) => ii);
+                    const next = cols.filter((c2) => c2 !== src);
+                    const dst = next.indexOf(i);
+                    if (dst < 0) return cur;
+                    next.splice(dst, 0, src);
+                    return next;
+                  });
+                }}
                 style={{ width: colWidths[i], position: 'relative', cursor: 'pointer', userSelect: 'none' }}
                 onClick={(e) => toggleSort(i, e.shiftKey)}
-                title={`${c.name} (${c.dataType})${fk ? ` → ${fk.refSchema}.${fk.refTable}` : ''} — Shift+click for multi-sort`}
+                title={`${c.name} (${c.dataType})${fk ? ` → ${fk.refSchema}.${fk.refTable}` : ''} — drag to reorder · shift+click for multi-sort`}
               >
                 {fk && (
                   <span title={`FK → ${fk.refSchema}.${fk.refTable}`} style={{ color: 'var(--accent)', marginRight: 4 }}>↗</span>
@@ -642,6 +682,12 @@ export function ResultGrid(props: ResultGridProps) {
               const deleted = isRowDeleted(origIdx);
               const isNew = isRowNew(origIdx);
               const isSelected = selectedRowIdxs?.has(origIdx) ?? false;
+              // v2 auto-refresh diff: amber for changed, green for inserted.
+              const diffKey = (changedRowKeys || insertedRowKeys) && origIdx < result.rows.length
+                ? (keyForRow ? keyForRow(result.rows[origIdx]) : JSON.stringify(result.rows[origIdx]))
+                : '';
+              const diffChanged = !!diffKey && !!changedRowKeys?.has(diffKey);
+              const diffInserted = !!diffKey && !!insertedRowKeys?.has(diffKey);
               return (
                 <div
                   key={ri}
@@ -654,7 +700,16 @@ export function ResultGrid(props: ResultGridProps) {
                   style={{
                     display: 'flex',
                     height: ROW_HEIGHT,
-                    background: isSelected ? 'var(--accent-tint)' : undefined,
+                    background: isSelected
+                      ? 'var(--accent-tint)'
+                      : diffInserted
+                        ? 'rgba(91,227,168,0.10)'
+                        : diffChanged
+                          ? 'rgba(245,165,36,0.10)'
+                          : undefined,
+                    boxShadow: diffInserted
+                      ? 'inset 3px 0 0 var(--success)'
+                      : diffChanged ? 'inset 3px 0 0 var(--accent)' : undefined,
                   }}
                 >
                   {onSelectionChange && (

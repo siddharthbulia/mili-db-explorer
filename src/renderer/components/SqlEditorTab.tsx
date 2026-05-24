@@ -21,6 +21,7 @@ if (typeof self !== 'undefined' && !(self as any).MonacoEnvironment) {
 import { Play, ListFilter, FileDown, History, Save, Crown, XCircle, Activity } from 'lucide-react';
 import { ProgressBar, ElapsedBadge } from './ProgressBar';
 import { formatElapsed } from '../useElapsed';
+import { ExplainPlanModal } from './ExplainPlanModal';
 import { format } from 'sql-formatter';
 import { formatSqlInWorker } from '../workers/formatter-client';
 import { v4 as uuid } from 'uuid';
@@ -48,6 +49,7 @@ function SqlEditorTabInner({ tabId }: { tabId: string }) {
   const editorRef = useRef<any>(null);
   const monacoRef = useRef<any>(null);
   const [selection, setSelection] = useState<string>('');
+  const [explainOpen, setExplainOpen] = useState(false);
 
   const tab = tabUntyped && tabUntyped.kind === 'sql' ? tabUntyped : null;
 
@@ -95,6 +97,56 @@ function SqlEditorTabInner({ tabId }: { tabId: string }) {
       const sel = editor.getModel()?.getValueInRange(editor.getSelection()!) || '';
       setSelection(sel);
     });
+    // v2: schema-aware completion. We register one provider per editor mount;
+    // it pulls the latest schema list from store + api at trigger time so the
+    // suggestions stay fresh without reloading on every keystroke.
+    const provider = monaco.languages.registerCompletionItemProvider('sql', {
+      triggerCharacters: ['.', ' ', '\t', '\n'],
+      provideCompletionItems: async (model, position) => {
+        const conn = tab?.connectionId;
+        if (!conn) return { suggestions: [] };
+        let entries: { schema: string; table: string; column: string }[] = [];
+        try { entries = await api.getAutocomplete(conn); } catch { /* no-op */ }
+        const word = model.getWordUntilPosition(position);
+        const range = {
+          startLineNumber: position.lineNumber, endLineNumber: position.lineNumber,
+          startColumn: word.startColumn, endColumn: word.endColumn,
+        };
+        // Distinct table and column names — Monaco merges duplicates by label.
+        const tables = new Map<string, string>(); // "schema.table" -> table
+        const columns = new Map<string, string>(); // "schema.table.col" -> col
+        for (const e of entries) {
+          tables.set(`${e.schema}.${e.table}`, e.table);
+          columns.set(`${e.schema}.${e.table}.${e.column}`, e.column);
+        }
+        const ItemKind = monaco.languages.CompletionItemKind;
+        const suggestions: any[] = [];
+        for (const [qualified, t] of tables) {
+          suggestions.push({
+            label: t, insertText: `"${t}"`, kind: ItemKind.Struct,
+            detail: qualified, range,
+          });
+        }
+        for (const [qualified, col] of columns) {
+          const [, table] = qualified.split('.');
+          suggestions.push({
+            label: col, insertText: `"${col}"`, kind: ItemKind.Field,
+            detail: `${table}.${col}`, range,
+            // Slight sort boost so columns beat tables when both match.
+            sortText: '0' + col,
+          });
+        }
+        // Common PostgreSQL keywords/functions — Monaco's built-in SQL keywords
+        // already cover the basics; we top up with a few of the most-used.
+        const extras = ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'WHERE', 'GROUP BY', 'ORDER BY', 'LIMIT', 'OFFSET', 'RETURNING', 'WITH', 'count(*)', 'now()', 'current_timestamp', 'gen_random_uuid()'];
+        for (const k of extras) {
+          suggestions.push({ label: k, insertText: k, kind: ItemKind.Keyword, range });
+        }
+        return { suggestions };
+      },
+    });
+    // Dispose when the editor unmounts.
+    editor.onDidDispose(() => provider.dispose());
   };
 
   async function formatSql() {
@@ -316,6 +368,14 @@ function SqlEditorTabInner({ tabId }: { tabId: string }) {
         >
           <Activity size={12} /> Explain
         </button>
+        <button
+          className="btn"
+          onClick={() => setExplainOpen(true)}
+          disabled={tab.running || !tab.connectionId || !(selection.trim() || tab.sql.trim())}
+          title="View interactive plan tree (EXPLAIN FORMAT JSON)"
+        >
+          <Activity size={12} /> Plan tree
+        </button>
         <button className="btn" onClick={formatSql} title="Format SQL (⌘⇧F)">
           Format
         </button>
@@ -379,6 +439,14 @@ function SqlEditorTabInner({ tabId }: { tabId: string }) {
           <ResultsPane tab={tab} />
         </div>
       </div>
+      {explainOpen && tab.connectionId && (
+        <ExplainPlanModal
+          connectionId={tab.connectionId}
+          sql={selection.trim() || tab.sql}
+          open
+          onClose={() => setExplainOpen(false)}
+        />
+      )}
     </div>
   );
 }
