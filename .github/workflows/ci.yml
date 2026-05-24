@@ -1,0 +1,107 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel earlier runs on the same branch when a new push lands.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ────────────────────────────────────────────────────────────────────────
+  # Static checks + pure-module + renderer unit tests. Fast (~30s). Runs
+  # on every push and gates everything below.
+  static:
+    name: Typecheck + unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - name: Install deps
+        run: npm ci
+      - name: TypeScript
+        run: npm run typecheck
+      - name: Vitest (renderer + jsdom)
+        run: npm run test:unit
+      # Bundle-size budget so we notice regressions before shipping.
+      - name: Build renderer + main
+        run: npm run build
+      - name: Bundle size budget
+        run: npm run check:bundle-size
+
+  # ────────────────────────────────────────────────────────────────────────
+  # The "hands-on" test suite — needs a real Postgres for ~70% of scenarios.
+  # We spin one up as a service container.
+  pg-tests:
+    name: Main-process tests (live Postgres)
+    runs-on: ubuntu-latest
+    needs: static
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: mili
+          POSTGRES_PASSWORD: mili
+          POSTGRES_DB: mili
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U mili"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # Match the constants in tests/connect.ts.
+      MILI_TEST_PG_HOST: localhost
+      MILI_TEST_PG_PORT: '5432'
+      MILI_TEST_PG_USER: mili
+      MILI_TEST_PG_PASSWORD: mili
+      MILI_TEST_PG_DATABASE: mili
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: Apply fixtures
+        run: PGPASSWORD=mili psql -h localhost -U mili -d mili -f tests/fixtures.sql
+      - name: Custom harness (1100+ scenarios)
+        run: npm test
+
+  # ────────────────────────────────────────────────────────────────────────
+  # End-to-end on the Electron binary — macOS so we exercise the same
+  # platform the DMG actually ships for.
+  e2e:
+    name: Playwright Electron + visual snapshots
+    runs-on: macos-14
+    needs: static
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - name: Install deps
+        run: npm ci
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+      - name: Build
+        run: npm run build
+      - name: Run Playwright
+        run: npm run test:e2e
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 14

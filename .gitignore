@@ -15,3 +15,9 @@ site/.vercel/
 
 # Editor / agent state
 .claude/
+
+# Test outputs — baselines under tests-e2e/__screenshots__/ ARE committed,
+# but per-run failure artifacts are not.
+playwright-report/
+test-results/
+coverage/
